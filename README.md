@@ -1,5 +1,6 @@
 # INTERFACING TEMPERATURE SENSOR WITH IOT CONTROLLER AND UPLOADING DATA TO THE CLOUD VIA LORAWAN
-
+## NAME: Vinuthaa NN
+## REG NO: 212224040362
 # AIM:
 To upload the temperature sensor value in the Things mate using Arduino controller.
 
@@ -79,10 +80,168 @@ Update rate: 1 Hz (one reading per second)</br>
 ![DHT11-Sensor](https://github.com/user-attachments/assets/69e4670d-6116-4cab-b905-941169d913a5)
 
 # PROGRAM:
+```
+#include <SoftwareSerial.h>
+#include <DFRobot_DHT11.h>
+
+// Pin configuration
+#define DHT11_PIN 4
+DFRobot_DHT11 DHT;
+
+SoftwareSerial ss(10, 11); // RX, TX to LA66
+
+String inputString = "";
+bool stringComplete = false;
+
+long old_time = millis();
+long new_time;
+long uplink_interval = 30000;
+
+bool time_to_at_recvb = false;
+bool get_LA66_data_status = false;
+bool network_joined_status = false;
+
+char rxbuff[128];
+uint8_t rxbuff_index = 0;
+char Downlink_Data;
+
+uint16_t Temp = 0;
+uint16_t Humi = 0;
+uint8_t LoRa_Uplink_Buffer[4]; // 2 bytes for Temp + 2 bytes for Humi
+
+void setup() {
+  Serial.begin(9600);
+  ss.begin(9600);
+  ss.listen();
+
+  pinMode(6, OUTPUT); // onboard LED
+  inputString.reserve(200);
+
+  DHT.read(DHT11_PIN); // Initial read to wake sensor
+  ss.println("ATZ");   // Reset LA66
+}
+
+void loop() {
+  new_time = millis();
+  if ((new_time - old_time >= uplink_interval) && network_joined_status) {
+    old_time = new_time;
+    get_LA66_data_status = false;
+    sensorread();
+
+    // Fill buffer
+    LoRa_Uplink_Buffer[0] = highByte(Temp);
+    LoRa_Uplink_Buffer[1] = lowByte(Temp);
+    LoRa_Uplink_Buffer[2] = highByte(Humi);
+    LoRa_Uplink_Buffer[3] = lowByte(Humi);
+
+    // Build HEX payload string
+    String payload = "";
+    for (int i = 0; i < 4; i++) {
+      if (LoRa_Uplink_Buffer[i] < 0x10) payload += "0";
+      payload += String(LoRa_Uplink_Buffer[i], HEX);
+    }
+
+    ss.println("AT+SENDB=0,4,4," + payload);
+    Serial.println("Sent Payload: " + payload);
+  }
+
+  if (time_to_at_recvb) {
+    time_to_at_recvb = false;
+    get_LA66_data_status = true;
+    delay(1000);
+    ss.println("AT+CFG");
+  }
+
+  while (ss.available()) {
+    char inChar = (char)ss.read();
+    inputString += inChar;
+    rxbuff[rxbuff_index++] = inChar;
+    if (rxbuff_index > 127) break;
+
+    if (inChar == '\n' || inChar == '\r') {
+      stringComplete = true;
+      rxbuff[rxbuff_index] = '\0';
+
+      if (strncmp(rxbuff, "JOINED", 6) == 0) network_joined_status = true;
+      if (strncmp(rxbuff, "Dragino LA66 Device", 19) == 0) network_joined_status = false;
+
+      if (strncmp(rxbuff, "Run AT+RECVB=? to see detail", 28) == 0) {
+        time_to_at_recvb = true;
+        stringComplete = false;
+        inputString = "\0";
+      }
+
+      if (strncmp(rxbuff, "AT+RECVB=", 9) == 0) {
+        stringComplete = false;
+        inputString = "\0";
+        Serial.print("\nGet downlink data (FPort & Payload): ");
+        Serial.println(&rxbuff[12]);
+        Downlink_Data = rxbuff[12];
+        if (Downlink_Data == '1') 
+        { 
+        Serial.println("LED_ON"); 
+        digitalWrite(6, HIGH); 
+        }
+        else if (Downlink_Data == '2') 
+        { 
+          Serial.println("LED_OFF"); 
+          digitalWrite(6, LOW); 
+        }
+      }
+
+      rxbuff_index = 0;
+      if (get_LA66_data_status) {
+        stringComplete = false;
+        inputString = "\0";
+      }
+    }
+  }
+
+  while (Serial.available()) {
+    char inChar = (char)Serial.read();
+    inputString += inChar;
+    if (inChar == '\n' || inChar == '\r') {
+      ss.print(inputString);
+      inputString = "\0";
+    }
+  }
+
+  if (stringComplete) {
+    Serial.print(inputString);
+    inputString = "\0";
+    stringComplete = false;
+  }
+}
+
+void sensorread() {
+  DHT.read(DHT11_PIN);
+
+  float tempC = DHT.temperature;
+  float humi = DHT.humidity;
+
+  if (isnan(tempC) || isnan(humi)) {
+    Serial.println("Failed to read from DHT11 sensor!");
+    return;
+  }
+
+  Temp = uint16_t(tempC * 100); // 2 decimal places
+  Humi = uint16_t(humi * 100);
+
+  // Print readable values
+  Serial.print("Temperature (°C): ");
+  Serial.println(tempC, 2);
+  Serial.print("Humidity (%): ");
+  Serial.println(humi, 2);
+}
+```
 
 # CIRCUIT DIAGRAM:
 
+![image](https://github.com/user-attachments/assets/b0471ab0-2806-48bc-8e6e-2c8e6f5c9948)
+
 # OUTPUT:
+![image](https://github.com/user-attachments/assets/51731dac-ba34-43f8-a9aa-965938722c00)
+![Screenshot 2025-05-27 145802](https://github.com/user-attachments/assets/ae1aa8db-7d26-4ff5-bef5-62182e7f2b13)
 
 # RESULT:
 
